@@ -1,0 +1,15 @@
+# зібрані артефакти
+*.o
+*.a
+*.so
+*.exe
+target/
+minigrep
+sum
+
+# редактори та системні файли
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*~
