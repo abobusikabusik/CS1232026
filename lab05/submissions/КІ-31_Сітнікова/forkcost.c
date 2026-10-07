@@ -52,9 +52,47 @@ static double one_fork(char *buf, size_t size, int touch, long *minflt)
      * Батько: дочекатися дитини через wait4 (не waitpid!) і записати в
      * *minflt поле ru_minflt — сторінкові збої саме цієї дитини.
      * Не забудьте EINTR. Повернути виміряний час у мілісекундах. */
-    (void)buf; (void)size; (void)touch; (void)page;
-    *minflt = 0;
-    return 0;
+     
+    double t0 = now_ms();
+    pid_t pid = fork();
+    double t1 = now_ms();
+
+    if (pid == -1) 
+    {
+        perror("forkcost: fork");
+        exit(1);
+    }
+
+    if (pid == 0) 
+    {
+        if (touch) 
+        {
+            for (size_t i = 0; i < size; i += (size_t)page)
+                buf[i]++;
+        }
+
+    _exit(0);
+    }
+
+    int status;
+    struct rusage ru;
+    pid_t w;
+
+    do 
+    {
+        w = wait4(pid, &status, 0, &ru);
+    } 
+    while (w == -1 && errno == EINTR);
+
+    if (w == -1) 
+    {
+        perror("forkcost: wait4");
+        exit(1);
+    }
+
+    *minflt = ru.ru_minflt;
+
+    return t1 - t0;     
 }
 
 static double one_spawn(void)
