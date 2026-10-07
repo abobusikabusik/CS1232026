@@ -101,7 +101,7 @@ static void child_setup_and_exec(const struct opts *o, int wfd)
      close(fd);
      }
 
-     if (o->daemon) 
+     if (o->daemon && o->dir)
      {
          int nullfd = open("/dev/null", O_RDWR);
          if (nullfd == -1)
@@ -293,8 +293,29 @@ static int run_daemon(const struct opts *o)
 
          umask(022);
 
-         if (!o->dir) 
+         if (!o->dir)
          {
+             int nullfd = open("/dev/null", O_RDWR);
+             if (nullfd == -1)
+                 child_fail(pfd[1], ST_OPEN, errno);
+
+             int outfd = nullfd;
+
+             if (o->out)
+             {
+                 outfd = open(o->out, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                 if (outfd == -1)
+                     child_fail(pfd[1], ST_OPEN, errno);
+             }
+
+             if (dup2(nullfd, STDIN_FILENO) == -1 || dup2(outfd, STDOUT_FILENO) == -1 ||
+                 dup2(outfd, STDERR_FILENO) == -1)
+                 child_fail(pfd[1], ST_OPEN, errno);
+
+             if (outfd != nullfd)
+                 close(outfd);
+             close(nullfd);
+
              if (chdir("/") == -1)
                  child_fail(pfd[1], ST_CHDIR, errno);
          }
