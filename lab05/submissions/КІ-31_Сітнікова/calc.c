@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #define MAX_DEPTH 200
 
@@ -55,7 +56,11 @@ static long long factor(int depth)
         p++;
         long long v = factor(depth + 1);
         /* TODO 5: -v переповнюється для одного значення v. Якого? */
-        return -v;
+        /*return -v;*/
+        long long result;
+        if (__builtin_sub_overflow(0LL, v, &result))
+           fail("overflow");
+        return result;
     }
     if (!isdigit((unsigned char)*p)) fail("syntax error");
     long long v = 0;
@@ -63,7 +68,13 @@ static long long factor(int depth)
         /* TODO 5: v * 10 + цифра може не вміститися в long long.
          * Перевірка — через __builtin_mul_overflow / __builtin_add_overflow,
          * повідомлення — fail("overflow"). */
-        v = v * 10 + (*p - '0');
+        long long tmp;
+
+        if (__builtin_mul_overflow(v, 10LL, &tmp))
+            fail("overflow");
+
+        if (__builtin_add_overflow(tmp, (long long)(*p - '0'), &v))
+            fail("overflow");
         p++;
     }
     return v;
@@ -79,9 +90,17 @@ static long long term(int depth)
         p++;
         long long r = factor(depth);
         if (op == '*') {
-            v *= r;                 /* TODO 5: переповнення */
+            /*v *= r;*/                 /* TODO 5: переповнення */
+            long long result;
+            if (__builtin_mul_overflow(v, r, &result))
+                fail("overflow");
+            v = result;
         } else {
             if (r == 0) fail("division by zero");
+
+            if (v == LLONG_MIN && r == -1)
+               fail("overflow");
+
             v /= r;                 /* TODO 5: є одна пара, для якої і це переповнення */
         }
     }
@@ -96,20 +115,36 @@ static long long expr(int depth)
         if (op != '+' && op != '-') return v;
         p++;
         long long r = term(depth);
-        v = (op == '+') ? v + r : v - r;   /* TODO 5: переповнення */
+        long long result;
+
+        if (op == '+') 
+        {
+            if (__builtin_add_overflow(v, r, &result))
+                fail("overflow");
+        } 
+        else 
+        {
+            if (__builtin_sub_overflow(v, r, &result))
+                fail("overflow");
+        }
+
+        v = result;
+        /*v = (op == '+') ? v + r : v - r;*/   /* TODO 5: переповнення */
     }
 }
 
 int main(void)
 {
     char buf[1024];
-    int lines = 0, errors = 0;
-    char *text = NULL;
+    volatile int lines = 0, errors = 0;
+    char *volatile text = NULL;
 
     if (setjmp(on_error) != 0) {
         /* Сюди потрапляємо з fail(): другий «вихід» із setjmp */
         errors++;
         printf("error: %s\n", err_msg);
+        free((void *)text);
+        text = NULL;
     }
 
     while (fgets(buf, sizeof buf, stdin)) {
@@ -120,12 +155,13 @@ int main(void)
             perror("calc");
             return 2;
         }
-        p = text;
+        p = (const char *)text;
         long long v = expr(0);
         skip_spaces();
         if (*p != '\0') fail("trailing garbage");
         printf("%lld\n", v);
-        free(text);
+        free((void *)text);
+        text = NULL;
     }
     printf("lines=%d errors=%d\n", lines, errors);
     return errors ? 1 : 0;
