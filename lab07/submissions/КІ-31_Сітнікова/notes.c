@@ -54,6 +54,31 @@ static void drop_privileges(void)
      * кожного виклику. Потім переконайтеся, що повернути ефективний UID
      * і GID, з якими програма стартувала, неможливо, і завершіть процес
      * з кодом 2, якщо це не так. */
+
+     uid_t ruid = getuid(), euid0 = geteuid();
+    gid_t rgid = getgid(), egid0 = getegid();
+
+    if (setresgid(rgid, rgid, rgid) != 0) die("setresgid");
+    if (setresuid(ruid, ruid, ruid) != 0) die("setresuid");
+
+    uid_t r, e, s;
+    gid_t gr, ge, gs;
+    if (getresuid(&r, &e, &s) != 0) die("getresuid");
+    if (getresgid(&gr, &ge, &gs) != 0) die("getresgid");
+    if (r != ruid || e != ruid || s != ruid ||
+        gr != rgid || ge != rgid || gs != rgid) {
+        fprintf(stderr, "notes: привілеї не скинуто\n");
+        exit(2);
+    }
+
+    if (egid0 != rgid && setegid(egid0) == 0) {
+        fprintf(stderr, "notes: можна повернути GID\n");
+        exit(2);
+    }
+    if (euid0 != ruid && seteuid(euid0) == 0) {
+        fprintf(stderr, "notes: можна повернути UID\n");
+        exit(2);
+    }
 }
 
 static void print_id(void)
