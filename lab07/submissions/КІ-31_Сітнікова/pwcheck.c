@@ -86,8 +86,17 @@ static int check_password(const char *pw, const char *stored)
      *  — помилку libxcrypt повідомляє рядком, що починається з '*', або NULL;
      *  — порівнюйте функцією same(), а не strcmp: чому — питання 6;
      *  — перед поверненням затріть struct crypt_data (explicit_bzero). */
-    (void)pw; (void)stored; (void)same;
-    return -1;
+    struct crypt_data *cd = calloc(1, sizeof *cd);
+    if (!cd) return -1;
+    char *h = crypt_rn(pw, stored, cd, (int)sizeof *cd);
+    int res;
+    if (!h || h[0] == '*')
+        res = -1;
+    else
+        res = same(h, stored);
+    explicit_bzero(cd, sizeof *cd);
+    free(cd);
+    return res;
 }
 
 static int do_verify(const char *stored)
@@ -162,7 +171,33 @@ static int converse(int n, const struct pam_message **msg,
      *    їх) і повернути PAM_CONV_ERR.
      * Масив відповідей r виділяється calloc на n елементів; при успіху
      * записати його в *resp і повернути PAM_SUCCESS. */
-    (void)n; (void)msg; (void)resp;
+    struct pam_response *r = calloc((size_t)n, sizeof *r);
+    if (!r) return PAM_CONV_ERR;
+    for (int i = 0; i < n; i++) {
+        int style = msg[i]->msg_style;
+        if (style == PAM_PROMPT_ECHO_OFF || style == PAM_PROMPT_ECHO_ON) {
+            char buf[PWMAX];
+            int rc = read_secret(msg[i]->msg, buf, sizeof buf,
+                                 style == PAM_PROMPT_ECHO_ON);
+            if (rc == 0) r[i].resp = strdup(buf);
+            explicit_bzero(buf, sizeof buf);
+            if (rc != 0 || !r[i].resp) goto fail;
+        } else if (style == PAM_ERROR_MSG || style == PAM_TEXT_INFO) {
+            fprintf(stderr, "%s\n", msg[i]->msg);
+        } else {
+            goto fail;
+        }
+    }
+    *resp = r;
+    return PAM_SUCCESS;
+
+fail:
+    for (int i = 0; i < n; i++)
+        if (r[i].resp) {
+            explicit_bzero(r[i].resp, strlen(r[i].resp));
+            free(r[i].resp);
+        }
+    free(r);
     return PAM_CONV_ERR;
 }
 
