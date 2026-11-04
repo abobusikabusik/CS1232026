@@ -76,14 +76,22 @@ static int cmp_double(const void *a, const void *b)
  * Повертає медіану SERIES серій, у кожній — n читань підряд. */
 static double cost_ns(clockid_t id, int raw, long n)
 {
-    /* TODO 1. Виміряйте, скільки коштує одне читання годинника id.
-     * Одне читання триває десятки наносекунд — менше, ніж похибка одного
-     * вимірювання, тому міряйте серію з n читань (read_clock) годинником
-     * MONOTONIC (now_ns) і діліть на n. Повторіть SERIES разів і поверніть
-     * медіану (qsort + cmp_double). Перед вимірюванням зробіть кілька
-     * тисяч читань «на розігрів». */
-    (void)id; (void)raw; (void)n; (void)read_clock;
-    return 0.0;
+    struct timespec t;
+
+    for (int i = 0; i < 5000; i++)
+        read_clock(id, raw, &t);
+
+    double res[SERIES];
+    for (int s = 0; s < SERIES; s++) {
+        int64_t t0 = now_ns();
+        for (long i = 0; i < n; i++)
+            read_clock(id, raw, &t);
+        int64_t t1 = now_ns();
+        res[s] = (double)(t1 - t0) / (double)n;
+    }
+
+    qsort(res, SERIES, sizeof res[0], cmp_double);
+    return res[SERIES / 2];
 }
 
 static void cmd_info(void)
