@@ -65,18 +65,30 @@ static void print_utc(time_t t)
 static int wall_to_utc(const char *zone, const struct tm *wall, time_t out[2])
 {
     if (use_zone(zone) != 0) return -1;
-    /* TODO 3. Зараз функція просто довіряє mktime: для неіснуючого часу
-     * вона поверне «виправлений» момент, а з двох можливих — лише один.
-     * Перепишіть за алгоритмом:
-     *   для isdst = 0 і isdst = 1: скопіюйте wall, встановіть tm_isdst = isdst,
-     *   викличте mktime; потім localtime_r від результату і перевірте, що
-     *   рік, місяць, день, година, хвилина І tm_isdst збіглися із запитаними.
-     *   Якщо так — це справжній розв'язок. Однакові розв'язки не дублюйте,
-     *   результати впорядкуйте за зростанням. */
-    struct tm t = *wall;
-    t.tm_isdst = -1;
-    out[0] = mktime(&t);
-    return 1;
+
+    int n = 0;
+    for (int isdst = 0; isdst <= 1; isdst++) {
+        struct tm t = *wall;
+        t.tm_isdst = isdst;
+        time_t r = mktime(&t);
+        if (r == (time_t)-1)
+            continue;
+        struct tm back;
+        localtime_r(&r, &back);
+        if (back.tm_year == wall->tm_year && back.tm_mon == wall->tm_mon &&
+            back.tm_mday == wall->tm_mday && back.tm_hour == wall->tm_hour &&
+            back.tm_min == wall->tm_min && back.tm_isdst == isdst) {
+            if (n == 0 || out[0] != r)
+                out[n++] = r;
+        }
+    }
+
+    if (n == 2 && out[0] > out[1]) {
+        time_t tmp = out[0];
+        out[0] = out[1];
+        out[1] = tmp;
+    }
+    return n;
 }
 
 static int cmd_conv(int argc, char **argv)
