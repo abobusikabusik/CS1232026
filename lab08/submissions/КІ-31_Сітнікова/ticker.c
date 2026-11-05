@@ -65,19 +65,20 @@ static void spin(int64_t ns)
  * додати їх кількість до *missed і чекати першого майбутнього. */
 static void wait_abs(struct timespec *next, int64_t period_ns, long *missed)
 {
-    /* TODO 2. Зараз функція просто спить один період — так само, як режим rel,
-     * і тому так само накопичує дрейф. Перепишіть її за описом вище:
-     * дедлайн = попередній дедлайн + period_ns (а не «зараз» + period_ns);
-     * якщо дедлайн <= now_ns(), пропустіть стільки цілих періодів, скільки
-     * треба, щоб він став майбутнім, і порахуйте їх у *missed;
-     * потім clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, …).
-     * Увага: clock_nanosleep повертає номер помилки, а не −1 з errno.
-     * Перерваний сигналом сон (EINTR) повторіть, якщо не встановлено
-     * stop_requested. */
-    (void)missed;
-    struct timespec p = ns_ts(period_ns);
-    nanosleep(&p, NULL);
-    *next = ns_ts(now_ns());
+    int64_t deadline = ts_ns(next) + period_ns;
+    int64_t now = now_ns();
+
+    if (deadline <= now) {
+        int64_t skip = (now - deadline) / period_ns + 1;
+        deadline += skip * period_ns;
+        *missed += skip;
+    }
+    *next = ns_ts(deadline);
+
+    int err;
+    do {
+        err = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, next, NULL);
+    } while (err == EINTR && !stop_requested);
 }
 
 static int cmp_i64(const void *a, const void *b)
