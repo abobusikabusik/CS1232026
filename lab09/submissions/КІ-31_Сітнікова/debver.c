@@ -24,25 +24,57 @@ static int allowed(const char *s, const char *extra)
 
 int debver_parse(const char *s, struct debver *v, const char **err)
 {
-    /* TODO 1. Розберіть рядок s за форматом [epoch:]upstream[-revision]
-     * (коментар у debver.h; повна таблиця правил — у розділі 4.1 ЛР).
-     *   1. Порожній рядок і рядок із пробільними символами — помилка.
-     *   2. Епоха — усе до ПЕРШОЇ двокрапки: непорожня, лише цифри,
-     *      не більше INT_MAX. Немає двокрапки — епоха 0.
-     *   3. Ревізія — усе після ОСТАННЬОГО дефіса в залишку: непорожня,
-     *      лише літери, цифри та . + ~. Немає дефіса — ревізія "".
-     *   4. Upstream — те, що між ними: непорожній, починається з цифри,
-     *      лише літери, цифри та . + ~ - :.
-     *   5. Задовгі частини (>= DEBVER_MAX) — помилка, а не переповнення.
-     * Для помилки — return fail(err, "коротка причина"); допоміжна allowed()
-     * перевіряє, що всі символи рядка — літери, цифри або з набору extra.
-     *
-     * Каркас кладе весь рядок в upstream: епох і ревізій він не бачить. */
     memset(v, 0, sizeof *v);
     if (s == NULL || *s == '\0')
         return fail(err, "empty version");
-    snprintf(v->upstream, sizeof v->upstream, "%s", s);
-    (void)allowed;
+    for (const char *p = s; *p; p++)
+        if (isspace((unsigned char)*p))
+            return fail(err, "whitespace in version");
+
+    /* Епоха: усе до ПЕРШОЇ двокрапки. Немає двокрапки — епоха 0. */
+    const char *rest = s;
+    const char *colon = strchr(s, ':');
+    if (colon) {
+        size_t n = (size_t)(colon - s);
+        if (n == 0)
+            return fail(err, "empty epoch");
+        unsigned long e = 0;
+        for (size_t i = 0; i < n; i++) {
+            if (!isdigit((unsigned char)s[i]))
+                return fail(err, "epoch is not a number");
+            unsigned d = (unsigned)(s[i] - '0');
+            if (e > (INT_MAX - d) / 10)
+                return fail(err, "epoch too large");
+            e = e * 10 + d;
+        }
+        v->epoch = (unsigned)e;
+        rest = colon + 1;
+    }
+
+    /* Ревізія: усе після ОСТАННЬОГО дефіса в залишку. Немає дефіса — "". */
+    const char *dash = strrchr(rest, '-');
+    size_t ulen = dash ? (size_t)(dash - rest) : strlen(rest);
+    const char *rev = dash ? dash + 1 : "";
+    if (dash && *rev == '\0')
+        return fail(err, "empty revision");
+    if (!allowed(rev, ".+~"))
+        return fail(err, "bad character in revision");
+    if (strlen(rev) >= DEBVER_MAX)
+        return fail(err, "revision too long");
+
+    /* Версія автора: те, що між епохою і ревізією. */
+    if (ulen == 0)
+        return fail(err, "empty upstream version");
+    if (!isdigit((unsigned char)*rest))
+        return fail(err, "upstream version must start with a digit");
+    if (ulen >= DEBVER_MAX)
+        return fail(err, "upstream version too long");
+    memcpy(v->upstream, rest, ulen);
+    v->upstream[ulen] = '\0';
+    if (!allowed(v->upstream, ".+~-:"))
+        return fail(err, "bad character in upstream version");
+
+    snprintf(v->revision, sizeof v->revision, "%s", rev);
     return 0;
 }
 
@@ -61,22 +93,38 @@ static int order(int c)
 
 int debver_part_cmp(const char *a, const char *b)
 {
-    /* TODO 2. Порівняйте a і b так, як це робить dpkg.
-     * Обидва рядки ділимо на чергування «нецифровий шматок, цифровий шматок»
-     * і порівнюємо шматки попарно зліва направо, доки рядки не скінчаться:
-     *   1. Нецифрові шматки — посимвольно, але не за ASCII, а за вагою
-     *      order(): '~' менша за все, навіть за кінець рядка; кінець — 0;
-     *      літери — за кодом; інші символи (. + -) — після всіх літер.
-     *      Короткий шматок доповнюється «кінцем рядка» (вага 0).
-     *   2. Цифрові шматки — як числа: провідні нулі не важать, порожній
-     *      шматок — це 0. Не перетворюйте на int: "20260101123456789" не
-     *      влізе в жоден тип. Довше число (після нулів) — більше; однакової
-     *      довжини — вирішує перша відмінна цифра.
-     * Перша відмінність і визначає знак результату.
-     *
-     * Каркас порівнює байти, як strcmp: для нього 1.10 < 1.9 і 1.0~rc1 > 1.0. */
-    (void)order;
-    return strcmp(a, b);
+    while (*a || *b) {
+        /* 1. Нецифрові шматки: посимвольно за вагою order(). */
+        while ((*a && !isdigit((unsigned char)*a)) ||
+               (*b && !isdigit((unsigned char)*b))) {
+            int ac = order((unsigned char)*a);
+            int bc = order((unsigned char)*b);
+            if (ac != bc)
+                return ac < bc ? -1 : 1;
+            a++;
+            b++;
+        }
+
+        /* 2. Цифрові шматки: як числа, але без перетворення на int. */
+        while (*a == '0')
+            a++;
+        while (*b == '0')
+            b++;
+        int first_diff = 0;
+        while (isdigit((unsigned char)*a) && isdigit((unsigned char)*b)) {
+            if (!first_diff)
+                first_diff = *a - *b;
+            a++;
+            b++;
+        }
+        if (isdigit((unsigned char)*a))
+            return 1;                      /* довше число — більше */
+        if (isdigit((unsigned char)*b))
+            return -1;
+        if (first_diff)
+            return first_diff < 0 ? -1 : 1;
+    }
+    return 0;
 }
 
 int debver_cmp(const struct debver *a, const struct debver *b)
