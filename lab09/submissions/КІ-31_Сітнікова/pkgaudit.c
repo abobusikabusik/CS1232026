@@ -258,7 +258,23 @@ static void parse_deps(const char *field, dep_cb cb, void *ctx)
      *     починається з пробілу, '(', '[', '<' або ':' (strcspn).
      *
      * Каркас не знаходить жодної залежності. */
-    (void)field; (void)cb; (void)ctx;
+    if (field == NULL || *field == '\0')
+        return;
+
+    char *copy = xstrdup(field);
+    char *save1;
+    for (char *item = strtok_r(copy, ",", &save1); item;
+         item = strtok_r(NULL, ",", &save1)) {
+         char *save2;
+         for (char *alt = strtok_r(item, "|", &save2); alt;
+              alt = strtok_r(NULL, "|", &save2)) {
+              char *name = trim(alt);
+              name[strcspn(name, " \t([<:")] = '\0';
+              if (*name)
+                  cb(name, ctx);
+        }
+    }
+    free(copy);  
 }
 
 /* ---------- stats ---------- */
@@ -312,6 +328,14 @@ static int cmd_deps(const char *name)
 /* Позначає як потрібні пакет з назвою name і всі встановлені пакети,
  * що надають (Provides) віртуальний пакет name. */
 struct mark_ctx { const struct pkg *self; };
+struct prov_ctx { const char *want; int found; };
+
+static void prov_cb(const char *name, void *ctx)
+{
+    struct prov_ctx *c = ctx;
+    if (!strcmp(name, c->want))
+        c->found = 1;
+}
 
 static void mark_used(const char *name, void *ctx)
 {
@@ -325,7 +349,19 @@ static void mark_used(const char *name, void *ctx)
      *
      * Каркас нічого не позначає: усі пакети, крім обов'язкових, — «листки». */
     const struct mark_ctx *m = ctx;
-    (void)name; (void)m;
+    for (size_t i = 0; i < npkgs; i++) {
+         struct pkg *p = &pkgs[i];
+         if (p == m->self)
+             continue;
+         if (!strcmp(p->name, name)) {
+             p->used = 1;
+             continue;
+         }
+         struct prov_ctx pc = { name, 0 };
+         parse_deps(p->provides, prov_cb, &pc);
+         if (pc.found)
+             p->used = 1;
+    }
 }
 
 static int cmd_leaves(void)
