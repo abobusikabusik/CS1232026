@@ -1,7 +1,7 @@
 Source: lab09-pkgtools
 Section: admin
 Priority: optional
-Maintainer: Ім'я Прізвище <you@example.org>
+Maintainer: Sofia Sitnikova <sofiia.sitnikova@student.karazin.ua>
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
 
@@ -13,6 +13,11 @@ Rules-Requires-Root: no
 #             з пробілу, порожній рядок — « .»;
 #   Maintainer вище — ваші ім'я та пошта латиницею.
 Package: lab09-pkgtools
-Architecture: all
-Depends: libc6
-Description: TODO
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: tools for inspecting Debian package versions and installed packages
+ vercmp compares Debian package versions the way dpkg does.
+ pkgaudit reads the dpkg database, lists installed packages and finds
+ leaf packages that no other installed package depends on.
+ .
+ Educational package for the "System software" course.

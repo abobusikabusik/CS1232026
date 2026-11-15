@@ -29,5 +29,5 @@ leaf packages.
 %config(noreplace) %{_sysconfdir}/pkgaudit.conf
 
 %changelog
-* Mon Nov 02 2026 Ім'я Прізвище <you@example.org> - 1.0-1
+* Mon Nov 02 2026 Sofia Sitnikova <sofiia.sitnikova@student.karazin.ua> - 1.0-1
 - First release
